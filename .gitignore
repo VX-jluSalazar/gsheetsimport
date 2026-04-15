@@ -1,0 +1,70 @@
+# Sistema
+
+.DS_Store
+Thumbs.db
+
+# Logs
+
+*.log
+logs/
+
+# Dependencias (si usas composer en el módulo)
+
+vendor/
+composer.lock
+
+# Archivos temporales
+
+*.tmp
+*.swp
+*.bak
+
+# IDEs / editores
+
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node (por si usas JS tooling)
+
+node_modules/
+npm-debug.log
+yarn.lock
+
+# Credenciales sensibles
+
+var/credentials/*.json
+var/credentials/*.key
+var/credentials/*.pem
+
+# Mantener estructura pero ignorar contenido sensible
+
+!var/credentials/.htaccess
+!var/credentials/index.php
+
+# Cache o builds
+
+dist/
+build/
+
+# Archivos de entorno
+
+.env
+.env.local
+.env.*.local
+
+# PHPUnit / testing
+
+phpunit.xml
+coverage/
+
+# Archivos de PrestaShop que no necesitas versionar dentro del módulo
+
+config/
+translations/*.xlf
+
+# Otros
+
+*.zip
+*.tar.gz
