@@ -36,7 +36,14 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
 
-    const json = await response.json();
+    const raw = await response.text();
+    let json;
+
+    try {
+      json = JSON.parse(raw);
+    } catch (error) {
+      throw new Error('Invalid server response (expected JSON).');
+    }
 
     if (!response.ok || !json.success) {
       throw new Error(json.message || 'Unexpected AJAX error.');

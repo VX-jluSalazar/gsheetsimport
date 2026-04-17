@@ -17,7 +17,7 @@ class GsheetsImport extends Module
         $this->name = 'gsheetsimport';
         $this->tab = 'administration';
         $this->version = '1.0.0';
-        $this->author = 'jluSalazar';
+        $this->author = 'Andrés Nacimiento';
         $this->need_instance = 0;
         $this->bootstrap = true;
 

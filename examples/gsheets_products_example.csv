@@ -1,0 +1,9 @@
+reference,name,price,quantity,active,description_short,description,category_id
+CAM-BASICA-BLK,Camiseta Basica Negra,19.99,35,1,Camiseta negra de algodon,Camiseta manga corta color negro talla unisex,2
+CAM-BASICA-WHT,Camiseta Basica Blanca,18.50,42,1,Camiseta blanca de algodon,Camiseta manga corta color blanco ideal para personalizar,2
+JEA-SLIM-BLU,Jean Slim Azul,49.90,18,1,Jean slim fit azul oscuro,Jean de mezclilla corte slim con elastano y bolsillos reforzados,2
+ZAP-URBAN-GRY,Zapatilla Urbana Gris,64.00,12,1,Zapatilla ligera urbana,Zapatilla comoda para uso diario con suela antideslizante,2
+GOR-SPORT-RED,Gorra Sport Roja,15.25,0,1,Gorra deportiva roja,Gorra ajustable con visera curva para entrenamiento,2
+MOCH-TRAVEL-BLK,Mochila Travel Negra,79.00,6,1,Mochila de viaje 25L,Mochila resistente al agua con compartimento para laptop,2
+TAZA-LOGO-WHT,Taza Logo Blanca,9.99,120,1,Taza ceramica blanca,Taza de 350ml apta para microondas y lavavajillas,2
+LLAV-PROMO-001,Llavero Promocional,2.50,300,0,Llavero metalico promocional,Llavero compacto para obsequios y eventos de marca,2
