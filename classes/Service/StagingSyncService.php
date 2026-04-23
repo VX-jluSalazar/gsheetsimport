@@ -28,7 +28,8 @@ class StagingSyncService
         foreach ($rows as $row) {
             $reference = pSQL((string) $row['reference']);
             $rowNumber = (int) ($row['row_number'] ?? 0);
-            $this->syncRepository->upsertRow($reference, $row, $rowNumber);
+            $productExists = (int) \Product::getIdByReference($reference) > 0;
+            $this->syncRepository->upsertRow($reference, $row, $rowNumber, $productExists);
         }
 
         return [

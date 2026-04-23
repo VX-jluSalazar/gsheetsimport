@@ -10,28 +10,46 @@ use PrestaShopException;
 
 class GoogleSheetsRestService
 {
+    private const SHEET_DATA_RANGE = 'A2:P';
+
     private GoogleJwtAuthService $authService;
 
     /**
      * Expected columns:
-     * A: reference
+     * A: product_id
      * B: name
-     * C: price
-     * D: quantity
-     * E: active
-     * F: description_short
-     * G: description
-     * H: category_id
+     * C: reference
+     * D: isbn
+     * E: quantity
+     * F: price
+     * G: tax_rate
+     * H: brand
+     * I: category
+     * J: weight
+     * K: description
+     * L: image_urls
+     * M: feature_language
+     * N: feature_level
+     * O: feature_material_type
+     * P: feature_isbn
      */
     private const COLUMN_MAP = [
-        0 => 'reference',
+        0 => 'product_id',
         1 => 'name',
-        2 => 'price',
-        3 => 'quantity',
-        4 => 'active',
-        5 => 'description_short',
-        6 => 'description',
-        7 => 'category_id',
+        2 => 'reference',
+        3 => 'isbn',
+        4 => 'quantity',
+        5 => 'price',
+        6 => 'tax_rate',
+        7 => 'brand',
+        8 => 'category',
+        9 => 'weight',
+        10 => 'description',
+        11 => 'image_urls',
+        12 => 'feature_language',
+        13 => 'feature_level',
+        14 => 'feature_material_type',
+        15 => 'feature_isbn',
     ];
 
     public function __construct(GoogleJwtAuthService $authService)
@@ -45,15 +63,14 @@ class GoogleSheetsRestService
     public function fetchRows(string $credentialPath): array
     {
         $spreadsheetId = (string) \Configuration::get(\GsheetsImport::CONFIG_SPREADSHEET_ID);
-        $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_SHEET_NAME);
-        $range = (string) \Configuration::get(\GsheetsImport::CONFIG_RANGE, 'A2:Z');
+        $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_PRODUCTS_SHEET_NAME);
 
-        if ($spreadsheetId === '' || $sheetName === '' || $range === '') {
+        if ($spreadsheetId === '' || $sheetName === '') {
             throw new PrestaShopException('Google Sheets configuration is incomplete.');
         }
 
         $accessToken = $this->authService->getAccessToken($credentialPath);
-        $sheetRange = $sheetName . '!' . $range;
+        $sheetRange = $sheetName . '!' . self::SHEET_DATA_RANGE;
 
         $url = 'https://sheets.googleapis.com/v4/spreadsheets/' .
             rawurlencode($spreadsheetId) .
@@ -137,13 +154,24 @@ class GoogleSheetsRestService
     {
         $mapped = [];
         foreach (self::COLUMN_MAP as $index => $field) {
-            $mapped[$field] = isset($row[$index]) ? trim((string) $row[$index]) : '';
+            $mapped[$field] = isset($row[$index]) ? (string) $row[$index] : '';
         }
 
-        $mapped['price'] = $this->normalizeFloat((string) $mapped['price']);
-        $mapped['quantity'] = (int) $mapped['quantity'];
-        $mapped['active'] = $this->normalizeBoolean((string) $mapped['active']);
-        $mapped['category_id'] = (int) $mapped['category_id'];
+        $mapped['product_id'] = (int) trim($mapped['product_id']);
+        $mapped['reference'] = trim($mapped['reference']);
+        $mapped['isbn'] = trim($mapped['isbn']);
+        $mapped['quantity'] = $this->normalizeInt($mapped['quantity']);
+        $mapped['price'] = $this->normalizeFloat($mapped['price']);
+        $mapped['tax_rate'] = $this->normalizeFloat($mapped['tax_rate']);
+        $mapped['brand'] = trim($mapped['brand']);
+        $mapped['category'] = trim($mapped['category']);
+        $mapped['weight'] = $this->normalizeFloat($mapped['weight']);
+        $mapped['image_urls'] = trim($mapped['image_urls']);
+        $mapped['feature_language'] = trim($mapped['feature_language']);
+        $mapped['feature_level'] = trim($mapped['feature_level']);
+        $mapped['feature_material_type'] = trim($mapped['feature_material_type']);
+        $mapped['feature_isbn'] = trim($mapped['feature_isbn']);
+        $mapped['description'] = $this->normalizeDescription($mapped['description']);
 
         return $mapped;
     }
@@ -154,9 +182,13 @@ class GoogleSheetsRestService
         return (float) $normalized;
     }
 
-    private function normalizeBoolean(string $value): int
+    private function normalizeInt(string $value): int
     {
-        $value = \Tools::strtolower(trim($value));
-        return in_array($value, ['1', 'true', 'yes', 'si', 'sí'], true) ? 1 : 0;
+        return (int) trim($value);
+    }
+
+    private function normalizeDescription(string $value): string
+    {
+        return (string) preg_replace("/\r\n|\r|\n/", '<br>', $value);
     }
 }

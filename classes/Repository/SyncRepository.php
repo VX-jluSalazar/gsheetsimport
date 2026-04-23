@@ -17,11 +17,12 @@ class SyncRepository
         $this->table = _DB_PREFIX_ . 'gsheets_sync';
     }
 
-    public function upsertRow(string $reference, array $row, int $rowNumber): void
+    public function upsertRow(string $reference, array $row, int $rowNumber, bool $productExists): void
     {
         $json = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $referenceSql = pSQL($reference);
         $jsonSql = pSQL($json, true);
+        $productExistsSql = (int) $productExists;
 
         $sql = 'INSERT INTO `' . bqSQL($this->table) . '` 
             (`reference`, `row_number`, `data_json`, `needs_update`, `status`, `error_message`, `last_sync`, `created_at`, `updated_at`)
@@ -38,9 +39,9 @@ class SyncRepository
             )
             ON DUPLICATE KEY UPDATE
                 `row_number` = VALUES(`row_number`),
-                `needs_update` = IF(`data_json` <> VALUES(`data_json`), 1, `needs_update`),
-                `status` = IF(`data_json` <> VALUES(`data_json`), "pending", `status`),
-                `error_message` = IF(`data_json` <> VALUES(`data_json`), NULL, `error_message`),
+                `needs_update` = IF(`data_json` <> VALUES(`data_json`) OR ' . $productExistsSql . ' = 0, 1, `needs_update`),
+                `status` = IF(`data_json` <> VALUES(`data_json`) OR ' . $productExistsSql . ' = 0, "pending", `status`),
+                `error_message` = IF(`data_json` <> VALUES(`data_json`) OR ' . $productExistsSql . ' = 0, NULL, `error_message`),
                 `data_json` = VALUES(`data_json`),
                 `last_sync` = NOW(),
                 `updated_at` = NOW()';
@@ -108,6 +109,51 @@ class SyncRepository
         $sql = 'SELECT `reference`, `row_number`, `error_message`, `updated_at`
             FROM `' . bqSQL($this->table) . '`
             WHERE `status` = "error"
+            ORDER BY `updated_at` DESC
+            LIMIT ' . (int) $limit;
+
+        return $this->db->executeS($sql) ?: [];
+    }
+
+    public function getCategoryValuesFromStaging(): array
+    {
+        $sql = 'SELECT `data_json`
+            FROM `' . bqSQL($this->table) . '`
+            WHERE `data_json` IS NOT NULL
+              AND `data_json` != ""';
+
+        $rows = $this->db->executeS($sql) ?: [];
+        $categories = [];
+
+        foreach ($rows as $row) {
+            $payload = json_decode((string) ($row['data_json'] ?? ''), true);
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $value = trim((string) ($payload['category'] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+
+            $categories[] = $value;
+        }
+
+        return array_values(array_unique($categories));
+    }
+
+    public function getRowsForList(string $filter = 'all', int $limit = 500): array
+    {
+        $where = '';
+        if ($filter === 'pending') {
+            $where = 'WHERE `needs_update` = 1';
+        } elseif ($filter === 'synchronized') {
+            $where = 'WHERE `status` = "success" AND `needs_update` = 0';
+        }
+
+        $sql = 'SELECT `reference`, `row_number`, `status`, `needs_update`, `error_message`, `updated_at`
+            FROM `' . bqSQL($this->table) . '`
+            ' . $where . '
             ORDER BY `updated_at` DESC
             LIMIT ' . (int) $limit;
 
