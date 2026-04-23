@@ -1,9 +1,4 @@
-reference,name,price,quantity,active,description_short,description,category_id
-CAM-BASICA-BLK,Camiseta Basica Negra,19.99,35,1,Camiseta negra de algodon,Camiseta manga corta color negro talla unisex,2
-CAM-BASICA-WHT,Camiseta Basica Blanca,18.50,42,1,Camiseta blanca de algodon,Camiseta manga corta color blanco ideal para personalizar,2
-JEA-SLIM-BLU,Jean Slim Azul,49.90,18,1,Jean slim fit azul oscuro,Jean de mezclilla corte slim con elastano y bolsillos reforzados,2
-ZAP-URBAN-GRY,Zapatilla Urbana Gris,64.00,12,1,Zapatilla ligera urbana,Zapatilla comoda para uso diario con suela antideslizante,2
-GOR-SPORT-RED,Gorra Sport Roja,15.25,0,1,Gorra deportiva roja,Gorra ajustable con visera curva para entrenamiento,2
-MOCH-TRAVEL-BLK,Mochila Travel Negra,79.00,6,1,Mochila de viaje 25L,Mochila resistente al agua con compartimento para laptop,2
-TAZA-LOGO-WHT,Taza Logo Blanca,9.99,120,1,Taza ceramica blanca,Taza de 350ml apta para microondas y lavavajillas,2
-LLAV-PROMO-001,Llavero Promocional,2.50,300,0,Llavero metalico promocional,Llavero compacto para obsequios y eventos de marca,2
+ID de producto,Nombre del producto,Referencia,ISBN,Cantidad,Precio sin IVA,%IVA,Marca,Categoría,Peso (kg) (opcional),Descripción,Url de imagenes (1000x1000px),Característica:Idioma,Característica:Nivel,Característica:Tipo de material,Característica:ISBN
+,"Libro Infantil: ¡Aprende y Juega!","LIB-INF-001",9788400000001,25,12.90,12,Editorial Faro,Libros,0.35,"<p>Edición especial con acentos, símbolos (&amp; % #) y salto de línea.</p>
+<p>Incluye actividades y material descargable.</p>","https://example.com/images/lib-inf-001-1.jpg;https://example.com/images/lib-inf-001-2.jpg",Español,Inicial,Papel couche,9788400000001
+1024,"Cuaderno Profesional A4","CUE-A4-PR-002",9788400000002,60,6.50,0,PaperWorks,Oficina,0.20,"<p>Cuaderno con tapa dura.</p><ul><li>100 hojas</li><li>Rayado</li></ul>",https://example.com/images/cue-a4-pr-002.jpg,Español,Intermedio,Papel bond,9788400000002
