@@ -3,22 +3,34 @@ document.addEventListener('DOMContentLoaded', function () {
   const processButton = document.getElementById('gs-process-btn');
   const progressBar = document.getElementById('gs-progress-bar');
   const statusMessage = document.getElementById('gs-status-message');
-
-  let totalRows = parseInt(document.getElementById('gs-total')?.textContent || '0', 10);
+  const productFilter = document.getElementById('gs-product-filter');
+  const productsTable = document.getElementById('gs-products-table');
 
   function setStatus(message, type) {
+    if (!statusMessage) {
+      return;
+    }
     statusMessage.className = 'alert alert-' + type;
     statusMessage.textContent = message;
   }
 
   function updateSummary(summary) {
-    document.getElementById('gs-total').textContent = summary.total;
-    document.getElementById('gs-success').textContent = summary.success;
-    document.getElementById('gs-pending').textContent = summary.pending;
-    document.getElementById('gs-error').textContent = summary.error;
+    const total = document.getElementById('gs-total');
+    const success = document.getElementById('gs-success');
+    const pending = document.getElementById('gs-pending');
+    const error = document.getElementById('gs-error');
+
+    if (total) total.textContent = summary.total;
+    if (success) success.textContent = summary.success;
+    if (pending) pending.textContent = summary.pending;
+    if (error) error.textContent = summary.error;
   }
 
   function updateProgress(summary) {
+    if (!progressBar) {
+      return;
+    }
+
     const total = parseInt(summary.total || 0, 10);
     const pending = parseInt(summary.pending || 0, 10);
     const done = total - pending;
@@ -63,22 +75,37 @@ document.addEventListener('DOMContentLoaded', function () {
       return processLoop(url);
     }
 
-    setStatus('Synchronization completed.', 'success');
+    setStatus('Product synchronization completed.', 'success');
     window.location.reload();
+  }
+
+  function applyProductFilter() {
+    if (!productsTable || !productFilter) {
+      return;
+    }
+
+    const filter = productFilter.value;
+    const rows = productsTable.querySelectorAll('tbody tr[data-filter-status]');
+
+    rows.forEach(function (row) {
+      const rowStatus = row.getAttribute('data-filter-status') || 'all';
+      const show = filter === 'all' || rowStatus === filter;
+      row.style.display = show ? '' : 'none';
+    });
   }
 
   if (fetchButton) {
     fetchButton.addEventListener('click', async function () {
       try {
         const url = fetchButton.dataset.url;
-        setStatus('Loading rows from Google Sheets...', 'info');
+        setStatus('Loading products from Google Sheets...', 'info');
         const result = await callAjax(url, 'FetchSheet');
 
-        totalRows = result.total_rows || 0;
         updateSummary(result.summary);
         updateProgress(result.summary);
 
-        setStatus('Rows loaded into staging successfully: ' + totalRows, 'success');
+        setStatus('Products loaded into staging: ' + (result.total_rows || 0), 'success');
+        window.location.reload();
       } catch (error) {
         setStatus(error.message, 'danger');
       }
@@ -89,11 +116,16 @@ document.addEventListener('DOMContentLoaded', function () {
     processButton.addEventListener('click', async function () {
       try {
         const url = processButton.dataset.url;
-        setStatus('Starting batch synchronization...', 'info');
+        setStatus('Starting product create/update...', 'info');
         await processLoop(url);
       } catch (error) {
         setStatus(error.message, 'danger');
       }
     });
+  }
+
+  if (productFilter) {
+    productFilter.addEventListener('change', applyProductFilter);
+    applyProductFilter();
   }
 });

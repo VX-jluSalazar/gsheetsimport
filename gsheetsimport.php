@@ -7,7 +7,7 @@ if (!defined('_PS_VERSION_')) {
 class GsheetsImport extends Module
 {
     public const CONFIG_SPREADSHEET_ID = 'GSHEETSIMPORT_SPREADSHEET_ID';
-    public const CONFIG_SHEET_NAME = 'GSHEETSIMPORT_SHEET_NAME';
+    public const CONFIG_PRODUCTS_SHEET_NAME = 'GSHEETSIMPORT_PRODUCTS_SHEET_NAME';
     public const CONFIG_RANGE = 'GSHEETSIMPORT_RANGE';
 
     public function __construct()
@@ -16,7 +16,7 @@ class GsheetsImport extends Module
 
         $this->name = 'gsheetsimport';
         $this->tab = 'administration';
-        $this->version = '1.0.0';
+        $this->version = '1.1.1';
         $this->author = 'Andrés Nacimiento';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -24,7 +24,7 @@ class GsheetsImport extends Module
         parent::__construct();
 
         $this->displayName = $this->trans('Google Sheets Import', [], 'Modules.Gsheetsimport.Admin');
-        $this->description = $this->trans('Imports products from Google Sheets using REST API and staging table.', [], 'Modules.Gsheetsimport.Admin');
+        $this->description = $this->trans('Imports products from Google Sheets using a staging table.', [], 'Modules.Gsheetsimport.Admin');
         $this->ps_versions_compliancy = ['min' => '8.2.0', 'max' => _PS_VERSION_];
     }
 
@@ -42,8 +42,8 @@ class GsheetsImport extends Module
         return parent::install()
             && $this->installDatabase()
             && $this->installAdminTab()
-            && Configuration::updateValue(self::CONFIG_RANGE, 'A2:Z')
-            && Configuration::updateValue(self::CONFIG_SHEET_NAME, 'Hoja1')
+            && Configuration::updateValue(self::CONFIG_RANGE, 'A2:P')
+            && Configuration::updateValue(self::CONFIG_PRODUCTS_SHEET_NAME, 'Productos')
             && $this->registerHook('displayBackOfficeHeader');
     }
 
@@ -52,7 +52,7 @@ class GsheetsImport extends Module
         return $this->uninstallAdminTab()
             && $this->uninstallDatabase()
             && Configuration::deleteByName(self::CONFIG_SPREADSHEET_ID)
-            && Configuration::deleteByName(self::CONFIG_SHEET_NAME)
+            && Configuration::deleteByName(self::CONFIG_PRODUCTS_SHEET_NAME)
             && Configuration::deleteByName(self::CONFIG_RANGE)
             && parent::uninstall();
     }
@@ -68,6 +68,9 @@ class GsheetsImport extends Module
 
     public function getContent(): string
     {
+        $this->createProductSyncTable();
+        $this->migrateLegacyConfig();
+
         $output = '';
 
         if (Tools::isSubmit('submitGsheetsImportConfig')) {
@@ -75,20 +78,21 @@ class GsheetsImport extends Module
         }
 
         $repository = new \GSheetsImport\Repository\SyncRepository();
-        $summary = $repository->getSummary();
-        $errors = $repository->getErrorRows(50);
 
         $this->context->smarty->assign([
-            'form_html' => $this->renderForm(),
-            'summary' => $summary,
-            'errors' => $errors,
+            'form_html' => $this->renderConfigurationForm(),
             'ajax_url' => $this->context->link->getAdminLink('AdminGsheetsImportAjax'),
+            'fetch_label' => $this->trans('Synchronize products from Sheet', [], 'Modules.Gsheetsimport.Admin'),
+            'process_label' => $this->trans('Create/Update products', [], 'Modules.Gsheetsimport.Admin'),
+            'product_summary' => $repository->getSummary(),
+            'product_rows' => $repository->getRowsForList('all', 500),
+            'product_errors' => $repository->getErrorRows(50),
         ]);
 
         return $output . $this->display(__FILE__, 'views/templates/admin/configure.tpl');
     }
 
-    protected function renderForm(): string
+    protected function renderConfigurationForm(): string
     {
         $fieldsForm = [
             'form' => [
@@ -105,14 +109,8 @@ class GsheetsImport extends Module
                     ],
                     [
                         'type' => 'text',
-                        'label' => $this->trans('Sheet name', [], 'Modules.Gsheetsimport.Admin'),
-                        'name' => self::CONFIG_SHEET_NAME,
-                        'required' => true,
-                    ],
-                    [
-                        'type' => 'text',
-                        'label' => $this->trans('Range', [], 'Modules.Gsheetsimport.Admin'),
-                        'name' => self::CONFIG_RANGE,
+                        'label' => $this->trans('Products sheet name', [], 'Modules.Gsheetsimport.Admin'),
+                        'name' => self::CONFIG_PRODUCTS_SHEET_NAME,
                         'required' => true,
                     ],
                     [
@@ -135,8 +133,7 @@ class GsheetsImport extends Module
         $helper->submit_action = 'submitGsheetsImportConfig';
         $helper->fields_value = [
             self::CONFIG_SPREADSHEET_ID => (string) Configuration::get(self::CONFIG_SPREADSHEET_ID),
-            self::CONFIG_SHEET_NAME => (string) Configuration::get(self::CONFIG_SHEET_NAME),
-            self::CONFIG_RANGE => (string) Configuration::get(self::CONFIG_RANGE, 'A2:Z'),
+            self::CONFIG_PRODUCTS_SHEET_NAME => (string) Configuration::get(self::CONFIG_PRODUCTS_SHEET_NAME),
         ];
 
         return $helper->generateForm([$fieldsForm]);
@@ -145,16 +142,15 @@ class GsheetsImport extends Module
     protected function postProcessConfiguration(): string
     {
         $spreadsheetId = trim((string) Tools::getValue(self::CONFIG_SPREADSHEET_ID));
-        $sheetName = trim((string) Tools::getValue(self::CONFIG_SHEET_NAME));
-        $range = trim((string) Tools::getValue(self::CONFIG_RANGE));
+        $productsSheetName = trim((string) Tools::getValue(self::CONFIG_PRODUCTS_SHEET_NAME));
 
-        if ($spreadsheetId === '' || $sheetName === '' || $range === '') {
-            return $this->displayError($this->trans('All fields are required.', [], 'Modules.Gsheetsimport.Admin'));
+        if ($spreadsheetId === '' || $productsSheetName === '') {
+            return $this->displayError($this->trans('Spreadsheet ID and products sheet name are required.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         Configuration::updateValue(self::CONFIG_SPREADSHEET_ID, pSQL($spreadsheetId));
-        Configuration::updateValue(self::CONFIG_SHEET_NAME, pSQL($sheetName));
-        Configuration::updateValue(self::CONFIG_RANGE, pSQL($range));
+        Configuration::updateValue(self::CONFIG_PRODUCTS_SHEET_NAME, pSQL($productsSheetName));
+        Configuration::updateValue(self::CONFIG_RANGE, 'A2:P');
 
         return $this->displayConfirmation($this->trans('Configuration saved.', [], 'Modules.Gsheetsimport.Admin'))
             . $this->handleCredentialUpload();
@@ -219,6 +215,11 @@ class GsheetsImport extends Module
 
     protected function installDatabase(): bool
     {
+        return $this->createProductSyncTable();
+    }
+
+    private function createProductSyncTable(): bool
+    {
         $sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'gsheets_sync` (
             `id_gsheets_sync` INT UNSIGNED NOT NULL AUTO_INCREMENT,
             `reference` VARCHAR(64) NOT NULL,
@@ -241,6 +242,14 @@ class GsheetsImport extends Module
     protected function uninstallDatabase(): bool
     {
         return Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'gsheets_sync`');
+    }
+
+    private function migrateLegacyConfig(): void
+    {
+        $legacySheet = (string) Configuration::get('GSHEETSIMPORT_SHEET_NAME');
+        if ($legacySheet !== '' && (string) Configuration::get(self::CONFIG_PRODUCTS_SHEET_NAME) === '') {
+            Configuration::updateValue(self::CONFIG_PRODUCTS_SHEET_NAME, pSQL($legacySheet));
+        }
     }
 
     protected function installAdminTab(): bool
