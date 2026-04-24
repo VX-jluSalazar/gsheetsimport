@@ -9,6 +9,7 @@ require_once _PS_MODULE_DIR_ . 'gsheetsimport/classes/Service/GoogleJwtAuthServi
 require_once _PS_MODULE_DIR_ . 'gsheetsimport/classes/Service/GoogleSheetsRestService.php';
 require_once _PS_MODULE_DIR_ . 'gsheetsimport/classes/Service/StagingSyncService.php';
 require_once _PS_MODULE_DIR_ . 'gsheetsimport/classes/Service/ProductSyncService.php';
+require_once _PS_MODULE_DIR_ . 'gsheetsimport/classes/Service/ProductSheetExportService.php';
 
 class AdminGsheetsImportAjaxController extends ModuleAdminController
 {
@@ -48,6 +49,29 @@ class AdminGsheetsImportAjaxController extends ModuleAdminController
             $productSyncService = new \GSheetsImport\Service\ProductSyncService($repository);
 
             $result = $productSyncService->processBatch(10);
+
+            $this->jsonResponse([
+                'success' => true,
+                'data' => $result,
+            ]);
+        } catch (\Throwable $e) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function ajaxProcessPushSheet(): void
+    {
+        try {
+            $repository = new \GSheetsImport\Repository\SyncRepository();
+            $authService = new \GSheetsImport\Service\GoogleJwtAuthService();
+            $sheetsService = new \GSheetsImport\Service\GoogleSheetsRestService($authService);
+            $exportService = new \GSheetsImport\Service\ProductSheetExportService($sheetsService, $repository);
+
+            $credentialPath = _PS_MODULE_DIR_ . 'gsheetsimport/var/credentials/service-account.json';
+            $result = $exportService->stageAndPush($credentialPath);
 
             $this->jsonResponse([
                 'success' => true,
