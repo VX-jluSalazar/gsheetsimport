@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', function () {
   const fetchButton = document.getElementById('gs-fetch-btn');
   const processButton = document.getElementById('gs-process-btn');
+  const pushButton = document.getElementById('gs-push-btn');
   const progressBar = document.getElementById('gs-progress-bar');
   const statusMessage = document.getElementById('gs-status-message');
   const productFilter = document.getElementById('gs-product-filter');
@@ -118,6 +119,26 @@ document.addEventListener('DOMContentLoaded', function () {
         const url = processButton.dataset.url;
         setStatus('Starting product create/update...', 'info');
         await processLoop(url);
+      } catch (error) {
+        setStatus(error.message, 'danger');
+      }
+    });
+  }
+
+  if (pushButton) {
+    pushButton.addEventListener('click', async function () {
+      try {
+        const url = pushButton.dataset.url;
+        setStatus('Synchronizing PrestaShop products to Google Sheets...', 'info');
+        const result = await callAjax(url, 'PushSheet');
+
+        setStatus(
+          'Google Sheets updated. Updated: ' + (result.updated || 0) +
+          ', appended: ' + (result.appended || 0) +
+          ', errors: ' + (result.errors || 0) + '.',
+          result.errors > 0 ? 'warning' : 'success'
+        );
+        window.location.reload();
       } catch (error) {
         setStatus(error.message, 'danger');
       }

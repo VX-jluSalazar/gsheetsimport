@@ -9,6 +9,7 @@ class GsheetsImport extends Module
     public const CONFIG_SPREADSHEET_ID = 'GSHEETSIMPORT_SPREADSHEET_ID';
     public const CONFIG_PRODUCTS_SHEET_NAME = 'GSHEETSIMPORT_PRODUCTS_SHEET_NAME';
     public const CONFIG_RANGE = 'GSHEETSIMPORT_RANGE';
+    public const CONFIG_CRON_TOKEN = 'GSHEETSIMPORT_CRON_TOKEN';
 
     public function __construct()
     {
@@ -35,6 +36,7 @@ class GsheetsImport extends Module
         require_once __DIR__ . '/classes/Service/GoogleSheetsRestService.php';
         require_once __DIR__ . '/classes/Service/StagingSyncService.php';
         require_once __DIR__ . '/classes/Service/ProductSyncService.php';
+        require_once __DIR__ . '/classes/Service/ProductSheetExportService.php';
     }
 
     public function install(): bool
@@ -44,6 +46,7 @@ class GsheetsImport extends Module
             && $this->installAdminTab()
             && Configuration::updateValue(self::CONFIG_RANGE, 'A2:P')
             && Configuration::updateValue(self::CONFIG_PRODUCTS_SHEET_NAME, 'Productos')
+            && Configuration::updateValue(self::CONFIG_CRON_TOKEN, $this->generateCronToken())
             && $this->registerHook('displayBackOfficeHeader');
     }
 
@@ -54,6 +57,7 @@ class GsheetsImport extends Module
             && Configuration::deleteByName(self::CONFIG_SPREADSHEET_ID)
             && Configuration::deleteByName(self::CONFIG_PRODUCTS_SHEET_NAME)
             && Configuration::deleteByName(self::CONFIG_RANGE)
+            && Configuration::deleteByName(self::CONFIG_CRON_TOKEN)
             && parent::uninstall();
     }
 
@@ -70,6 +74,7 @@ class GsheetsImport extends Module
     {
         $this->createProductSyncTable();
         $this->migrateLegacyConfig();
+        $this->ensureCronToken();
 
         $output = '';
 
@@ -84,9 +89,12 @@ class GsheetsImport extends Module
             'ajax_url' => $this->context->link->getAdminLink('AdminGsheetsImportAjax'),
             'fetch_label' => $this->trans('Synchronize products from Sheet', [], 'Modules.Gsheetsimport.Admin'),
             'process_label' => $this->trans('Create/Update products', [], 'Modules.Gsheetsimport.Admin'),
-            'product_summary' => $repository->getSummary(),
-            'product_rows' => $repository->getRowsForList('all', 500),
-            'product_errors' => $repository->getErrorRows(50),
+            'export_label' => $this->trans('Synchronize products to Sheet', [], 'Modules.Gsheetsimport.Admin'),
+            'product_summary' => $repository->getSummary(\GSheetsImport\Repository\SyncRepository::DIRECTION_SHEETS_TO_PRESTASHOP),
+            'product_rows' => $repository->getRowsForList('all', 500, \GSheetsImport\Repository\SyncRepository::DIRECTION_SHEETS_TO_PRESTASHOP),
+            'product_errors' => $repository->getErrorRows(50, \GSheetsImport\Repository\SyncRepository::DIRECTION_SHEETS_TO_PRESTASHOP),
+            'export_summary' => $repository->getSummary(\GSheetsImport\Repository\SyncRepository::DIRECTION_PRESTASHOP_TO_SHEETS),
+            'cron_links' => $this->getCronLinks(),
         ]);
 
         return $output . $this->display(__FILE__, 'views/templates/admin/configure.tpl');
@@ -213,6 +221,51 @@ class GsheetsImport extends Module
         return _PS_MODULE_DIR_ . $this->name . '/var/credentials';
     }
 
+    public function getCronLinks(): array
+    {
+        $token = $this->ensureCronToken();
+        $actions = [
+            'fetchSheet' => $this->trans('Fetch Sheet to staging', [], 'Modules.Gsheetsimport.Admin'),
+            'processBatch' => $this->trans('Create/Update one PrestaShop batch', [], 'Modules.Gsheetsimport.Admin'),
+            'processAll' => $this->trans('Create/Update PrestaShop products', [], 'Modules.Gsheetsimport.Admin'),
+            'pushSheet' => $this->trans('Push modified PrestaShop products to Sheet', [], 'Modules.Gsheetsimport.Admin'),
+            'runAll' => $this->trans('Run full synchronization', [], 'Modules.Gsheetsimport.Admin'),
+        ];
+        $links = [];
+
+        foreach ($actions as $action => $label) {
+            $links[] = [
+                'label' => $label,
+                'url' => $this->context->link->getModuleLink($this->name, 'cron', [
+                    'action' => $action,
+                    'token' => $token,
+                ], true),
+            ];
+        }
+
+        return $links;
+    }
+
+    private function ensureCronToken(): string
+    {
+        $token = (string) Configuration::get(self::CONFIG_CRON_TOKEN);
+        if ($token === '') {
+            $token = $this->generateCronToken();
+            Configuration::updateValue(self::CONFIG_CRON_TOKEN, $token);
+        }
+
+        return $token;
+    }
+
+    private function generateCronToken(): string
+    {
+        if (function_exists('random_bytes')) {
+            return bin2hex(random_bytes(24));
+        }
+
+        return Tools::passwdGen(48);
+    }
+
     protected function installDatabase(): bool
     {
         return $this->createProductSyncTable();
@@ -224,6 +277,7 @@ class GsheetsImport extends Module
             `id_gsheets_sync` INT UNSIGNED NOT NULL AUTO_INCREMENT,
             `reference` VARCHAR(64) NOT NULL,
             `row_number` INT UNSIGNED DEFAULT NULL,
+            `sync_direction` ENUM("sheets_to_prestashop","prestashop_to_sheets") NOT NULL DEFAULT "sheets_to_prestashop",
             `data_json` LONGTEXT NOT NULL,
             `needs_update` TINYINT(1) NOT NULL DEFAULT 1,
             `status` ENUM("pending","success","error") NOT NULL DEFAULT "pending",
@@ -232,11 +286,48 @@ class GsheetsImport extends Module
             `created_at` DATETIME NOT NULL,
             `updated_at` DATETIME NOT NULL,
             PRIMARY KEY (`id_gsheets_sync`),
-            UNIQUE KEY `uniq_reference` (`reference`),
-            KEY `idx_status_needs_update` (`status`, `needs_update`)
+            UNIQUE KEY `uniq_reference_direction` (`reference`, `sync_direction`),
+            KEY `idx_status_needs_update` (`status`, `needs_update`),
+            KEY `idx_direction_status_needs_update` (`sync_direction`, `status`, `needs_update`)
         ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
 
-        return Db::getInstance()->execute($sql);
+        return Db::getInstance()->execute($sql) && $this->migrateProductSyncTable();
+    }
+
+    private function migrateProductSyncTable(): bool
+    {
+        $table = _DB_PREFIX_ . 'gsheets_sync';
+        $db = Db::getInstance();
+
+        $hasDirection = (bool) $db->getValue('SELECT COUNT(*)
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = "' . pSQL($table) . '"
+              AND COLUMN_NAME = "sync_direction"');
+        if (!$hasDirection) {
+            if (!$db->execute('ALTER TABLE `' . bqSQL($table) . '` ADD `sync_direction` ENUM("sheets_to_prestashop","prestashop_to_sheets") NOT NULL DEFAULT "sheets_to_prestashop" AFTER `row_number`')) {
+                return false;
+            }
+        }
+
+        $indexes = $db->executeS('SHOW INDEX FROM `' . bqSQL($table) . '`') ?: [];
+        $indexNames = array_unique(array_map(static function ($row) {
+            return (string) $row['Key_name'];
+        }, $indexes));
+
+        if (in_array('uniq_reference', $indexNames, true)) {
+            $db->execute('ALTER TABLE `' . bqSQL($table) . '` DROP INDEX `uniq_reference`');
+        }
+
+        if (!in_array('uniq_reference_direction', $indexNames, true)) {
+            $db->execute('ALTER TABLE `' . bqSQL($table) . '` ADD UNIQUE KEY `uniq_reference_direction` (`reference`, `sync_direction`)');
+        }
+
+        if (!in_array('idx_direction_status_needs_update', $indexNames, true)) {
+            $db->execute('ALTER TABLE `' . bqSQL($table) . '` ADD KEY `idx_direction_status_needs_update` (`sync_direction`, `status`, `needs_update`)');
+        }
+
+        return true;
     }
 
     protected function uninstallDatabase(): bool

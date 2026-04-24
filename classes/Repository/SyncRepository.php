@@ -8,6 +8,9 @@ if (!defined('_PS_VERSION_')) {
 
 class SyncRepository
 {
+    public const DIRECTION_SHEETS_TO_PRESTASHOP = 'sheets_to_prestashop';
+    public const DIRECTION_PRESTASHOP_TO_SHEETS = 'prestashop_to_sheets';
+
     private \Db $db;
     private string $table;
 
@@ -19,19 +22,33 @@ class SyncRepository
 
     public function upsertRow(string $reference, array $row, int $rowNumber, bool $productExists): void
     {
+        $this->upsertStagingRow($reference, $row, $rowNumber, self::DIRECTION_SHEETS_TO_PRESTASHOP, !$productExists, true);
+    }
+
+    public function upsertExportRow(string $reference, array $row, int $rowNumber, bool $forcePending = false): void
+    {
+        $this->upsertStagingRow($reference, $row, $rowNumber, self::DIRECTION_PRESTASHOP_TO_SHEETS, $forcePending, $forcePending);
+    }
+
+    private function upsertStagingRow(string $reference, array $row, int $rowNumber, string $direction, bool $forcePending, bool $initialPending): void
+    {
         $json = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $referenceSql = pSQL($reference);
         $jsonSql = pSQL($json, true);
-        $productExistsSql = (int) $productExists;
+        $directionSql = pSQL($direction);
+        $forcePendingSql = (int) $forcePending;
+        $initialPendingSql = (int) $initialPending;
+        $initialStatusSql = $initialPending ? 'pending' : 'success';
 
         $sql = 'INSERT INTO `' . bqSQL($this->table) . '` 
-            (`reference`, `row_number`, `data_json`, `needs_update`, `status`, `error_message`, `last_sync`, `created_at`, `updated_at`)
+            (`reference`, `row_number`, `sync_direction`, `data_json`, `needs_update`, `status`, `error_message`, `last_sync`, `created_at`, `updated_at`)
             VALUES (
                 "' . $referenceSql . '",
                 ' . (int) $rowNumber . ',
+                "' . $directionSql . '",
                 "' . $jsonSql . '",
-                1,
-                "pending",
+                ' . $initialPendingSql . ',
+                "' . pSQL($initialStatusSql) . '",
                 NULL,
                 NOW(),
                 NOW(),
@@ -39,9 +56,10 @@ class SyncRepository
             )
             ON DUPLICATE KEY UPDATE
                 `row_number` = VALUES(`row_number`),
-                `needs_update` = IF(`data_json` <> VALUES(`data_json`) OR ' . $productExistsSql . ' = 0, 1, `needs_update`),
-                `status` = IF(`data_json` <> VALUES(`data_json`) OR ' . $productExistsSql . ' = 0, "pending", `status`),
-                `error_message` = IF(`data_json` <> VALUES(`data_json`) OR ' . $productExistsSql . ' = 0, NULL, `error_message`),
+                `sync_direction` = VALUES(`sync_direction`),
+                `needs_update` = IF(`data_json` <> VALUES(`data_json`) OR ' . $forcePendingSql . ' = 1, 1, `needs_update`),
+                `status` = IF(`data_json` <> VALUES(`data_json`) OR ' . $forcePendingSql . ' = 1, "pending", `status`),
+                `error_message` = IF(`data_json` <> VALUES(`data_json`) OR ' . $forcePendingSql . ' = 1, NULL, `error_message`),
                 `data_json` = VALUES(`data_json`),
                 `last_sync` = NOW(),
                 `updated_at` = NOW()';
@@ -49,11 +67,12 @@ class SyncRepository
         $this->db->execute($sql);
     }
 
-    public function getPendingBatch(int $limit = 10): array
+    public function getPendingBatch(int $limit = 10, string $direction = self::DIRECTION_SHEETS_TO_PRESTASHOP): array
     {
         $sql = 'SELECT *
             FROM `' . bqSQL($this->table) . '`
             WHERE `needs_update` = 1
+              AND `sync_direction` = "' . pSQL($direction) . '"
             ORDER BY `id_gsheets_sync` ASC
             LIMIT ' . (int) $limit;
 
@@ -79,20 +98,31 @@ class SyncRepository
         ], '`id_gsheets_sync` = ' . (int) $id, 1, true, true);
     }
 
-    public function countPending(): int
+    public function updateRowNumber(int $id, int $rowNumber): void
     {
-        $sql = 'SELECT COUNT(*) FROM `' . bqSQL($this->table) . '` WHERE `needs_update` = 1';
+        $this->db->update('gsheets_sync', [
+            'row_number' => (int) $rowNumber,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], '`id_gsheets_sync` = ' . (int) $id);
+    }
+
+    public function countPending(string $direction = self::DIRECTION_SHEETS_TO_PRESTASHOP): int
+    {
+        $sql = 'SELECT COUNT(*) FROM `' . bqSQL($this->table) . '`
+            WHERE `needs_update` = 1
+              AND `sync_direction` = "' . pSQL($direction) . '"';
         return (int) $this->db->getValue($sql);
     }
 
-    public function getSummary(): array
+    public function getSummary(string $direction = self::DIRECTION_SHEETS_TO_PRESTASHOP): array
     {
         $sql = 'SELECT
             COUNT(*) AS total,
             SUM(CASE WHEN `status` = "success" THEN 1 ELSE 0 END) AS success,
             SUM(CASE WHEN `status` = "error" THEN 1 ELSE 0 END) AS error,
             SUM(CASE WHEN `needs_update` = 1 THEN 1 ELSE 0 END) AS pending
-            FROM `' . bqSQL($this->table) . '`';
+            FROM `' . bqSQL($this->table) . '`
+            WHERE `sync_direction` = "' . pSQL($direction) . '"';
 
         $row = $this->db->getRow($sql);
 
@@ -104,11 +134,12 @@ class SyncRepository
         ];
     }
 
-    public function getErrorRows(int $limit = 50): array
+    public function getErrorRows(int $limit = 50, string $direction = self::DIRECTION_SHEETS_TO_PRESTASHOP): array
     {
         $sql = 'SELECT `reference`, `row_number`, `error_message`, `updated_at`
             FROM `' . bqSQL($this->table) . '`
             WHERE `status` = "error"
+              AND `sync_direction` = "' . pSQL($direction) . '"
             ORDER BY `updated_at` DESC
             LIMIT ' . (int) $limit;
 
@@ -142,13 +173,13 @@ class SyncRepository
         return array_values(array_unique($categories));
     }
 
-    public function getRowsForList(string $filter = 'all', int $limit = 500): array
+    public function getRowsForList(string $filter = 'all', int $limit = 500, string $direction = self::DIRECTION_SHEETS_TO_PRESTASHOP): array
     {
-        $where = '';
+        $where = 'WHERE `sync_direction` = "' . pSQL($direction) . '"';
         if ($filter === 'pending') {
-            $where = 'WHERE `needs_update` = 1';
+            $where .= ' AND `needs_update` = 1';
         } elseif ($filter === 'synchronized') {
-            $where = 'WHERE `status` = "success" AND `needs_update` = 0';
+            $where .= ' AND `status` = "success" AND `needs_update` = 0';
         }
 
         $sql = 'SELECT `reference`, `row_number`, `status`, `needs_update`, `error_message`, `updated_at`

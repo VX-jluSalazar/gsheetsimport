@@ -39,7 +39,35 @@
     <button type="button" class="btn btn-success" id="gs-process-btn" data-url="{$ajax_url|escape:'htmlall':'UTF-8'}">
       {$process_label|escape:'htmlall':'UTF-8'}
     </button>
+    <button type="button" class="btn btn-default" id="gs-push-btn" data-url="{$ajax_url|escape:'htmlall':'UTF-8'}">
+      {$export_label|escape:'htmlall':'UTF-8'}
+    </button>
   </p>
+
+  <p class="help-block">
+    {l s='PrestaShop to Sheets staging' mod='gsheetsimport'}:
+    {l s='total' mod='gsheetsimport'} {$export_summary.total|intval},
+    {l s='pending' mod='gsheetsimport'} {$export_summary.pending|intval},
+    {l s='errors' mod='gsheetsimport'} {$export_summary.error|intval}
+  </p>
+
+  <h4>{l s='Cron links' mod='gsheetsimport'}</h4>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>{l s='Action' mod='gsheetsimport'}</th>
+        <th>{l s='URL' mod='gsheetsimport'}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {foreach from=$cron_links item=cron_link}
+        <tr>
+          <td>{$cron_link.label|escape:'htmlall':'UTF-8'}</td>
+          <td><code>{$cron_link.url|escape:'htmlall':'UTF-8'}</code></td>
+        </tr>
+      {/foreach}
+    </tbody>
+  </table>
 
   <div class="progress">
     <div id="gs-progress-bar" class="progress-bar progress-bar-striped active" role="progressbar" style="width: 0%;">0%</div>

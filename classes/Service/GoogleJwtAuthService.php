@@ -10,7 +10,7 @@ use PrestaShopException;
 
 class GoogleJwtAuthService
 {
-    private const TOKEN_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
+    private const TOKEN_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
     /**
      * Generate an OAuth access token using a Service Account JSON file.

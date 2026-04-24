@@ -11,6 +11,7 @@ use PrestaShopException;
 class GoogleSheetsRestService
 {
     private const SHEET_DATA_RANGE = 'A2:P';
+    private const SHEET_APPEND_RANGE = 'A:P';
 
     private GoogleJwtAuthService $authService;
 
@@ -104,25 +105,97 @@ class GoogleSheetsRestService
         return $rows;
     }
 
+    public function writeRow(string $credentialPath, int $rowNumber, array $payload): void
+    {
+        if ($rowNumber < 2) {
+            throw new PrestaShopException('Invalid Google Sheets row number.');
+        }
+
+        $spreadsheetId = (string) \Configuration::get(\GsheetsImport::CONFIG_SPREADSHEET_ID);
+        $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_PRODUCTS_SHEET_NAME);
+
+        if ($spreadsheetId === '' || $sheetName === '') {
+            throw new PrestaShopException('Google Sheets configuration is incomplete.');
+        }
+
+        $accessToken = $this->authService->getAccessToken($credentialPath);
+        $sheetRange = $sheetName . '!A' . $rowNumber . ':P' . $rowNumber;
+        $url = 'https://sheets.googleapis.com/v4/spreadsheets/' .
+            rawurlencode($spreadsheetId) .
+            '/values/' .
+            rawurlencode($sheetRange) .
+            '?valueInputOption=USER_ENTERED';
+
+        $this->requestJson($url, $accessToken, 'PUT', [
+            'majorDimension' => 'ROWS',
+            'values' => [$this->payloadToSheetRow($payload)],
+        ]);
+    }
+
+    public function appendRow(string $credentialPath, array $payload): int
+    {
+        $spreadsheetId = (string) \Configuration::get(\GsheetsImport::CONFIG_SPREADSHEET_ID);
+        $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_PRODUCTS_SHEET_NAME);
+
+        if ($spreadsheetId === '' || $sheetName === '') {
+            throw new PrestaShopException('Google Sheets configuration is incomplete.');
+        }
+
+        $accessToken = $this->authService->getAccessToken($credentialPath);
+        $sheetRange = $sheetName . '!' . self::SHEET_APPEND_RANGE;
+        $url = 'https://sheets.googleapis.com/v4/spreadsheets/' .
+            rawurlencode($spreadsheetId) .
+            '/values/' .
+            rawurlencode($sheetRange) .
+            ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+
+        $response = $this->requestJson($url, $accessToken, 'POST', [
+            'majorDimension' => 'ROWS',
+            'values' => [$this->payloadToSheetRow($payload)],
+        ]);
+
+        $updatedRange = (string) ($response['updates']['updatedRange'] ?? '');
+        if (preg_match('/![A-Z]+(\d+):/', $updatedRange, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return 0;
+    }
+
     /**
      * Execute a GET request with Bearer token.
      */
     private function getJson(string $url, string $accessToken): array
+    {
+        return $this->requestJson($url, $accessToken, 'GET');
+    }
+
+    private function requestJson(string $url, string $accessToken, string $method = 'GET', ?array $payload = null): array
     {
         if (!function_exists('curl_init')) {
             throw new PrestaShopException('cURL extension is required.');
         }
 
         $ch = curl_init($url);
+        $headers = [
+            'Authorization: Bearer ' . $accessToken,
+            'Accept: application/json',
+        ];
+
+        if ($payload !== null) {
+            $headers[] = 'Content-Type: application/json';
+        }
 
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $accessToken,
-                'Accept: application/json',
-            ],
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_TIMEOUT => 30,
         ]);
+
+        if ($payload !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        }
 
         $rawResponse = curl_exec($ch);
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -145,6 +218,16 @@ class GoogleSheetsRestService
         }
 
         return $decoded;
+    }
+
+    private function payloadToSheetRow(array $payload): array
+    {
+        $row = [];
+        foreach (self::COLUMN_MAP as $field) {
+            $row[] = isset($payload[$field]) ? (string) $payload[$field] : '';
+        }
+
+        return $row;
     }
 
     /**
