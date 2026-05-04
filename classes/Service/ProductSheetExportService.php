@@ -42,22 +42,29 @@ class ProductSheetExportService
                 continue;
             }
 
-            $sheetRow = $sheetRowsByReference[$payload['reference']] ?? null;
+            $reference = $this->normalizeReference((string) $payload['reference']);
+            $payload['reference'] = $reference;
+
+            $sheetRow = $sheetRowsByReference[$this->getReferenceKey($reference)] ?? null;
             $rowNumber = is_array($sheetRow) ? (int) ($sheetRow['row_number'] ?? 0) : 0;
             $sheetDiffers = !$this->payloadMatchesSheetRow($payload, $sheetRow);
-            $this->syncRepository->upsertExportRow($payload['reference'], $payload, $rowNumber, $sheetDiffers);
+            $this->syncRepository->upsertExportRow($reference, $payload, $rowNumber, $sheetDiffers);
             ++$staged;
         }
 
-        $result = $this->pushPendingRows($credentialPath);
+        $result = $this->pushPendingRows($credentialPath, $sheetRowsByReference);
         $result['staged'] = $staged;
         $result['summary'] = $this->syncRepository->getSummary(SyncRepository::DIRECTION_PRESTASHOP_TO_SHEETS);
 
         return $result;
     }
 
-    private function pushPendingRows(string $credentialPath): array
+    private function pushPendingRows(string $credentialPath, array $sheetRowsByReference = []): array
     {
+        if (empty($sheetRowsByReference)) {
+            $sheetRowsByReference = $this->getSheetRowsByReference($credentialPath);
+        }
+
         $rows = $this->syncRepository->getPendingBatch(500, SyncRepository::DIRECTION_PRESTASHOP_TO_SHEETS);
         $updated = 0;
         $appended = 0;
@@ -69,6 +76,15 @@ class ProductSheetExportService
             try {
                 $payload = json_decode((string) $row['data_json'], true, 512, JSON_THROW_ON_ERROR);
                 $rowNumber = (int) $row['row_number'];
+                $reference = $this->normalizeReference((string) ($payload['reference'] ?? $row['reference']));
+                $payload['reference'] = $reference;
+                $sheetRow = $sheetRowsByReference[$this->getReferenceKey($reference)] ?? null;
+                $sheetRowNumber = is_array($sheetRow) ? (int) ($sheetRow['row_number'] ?? 0) : 0;
+
+                if ($sheetRowNumber >= 2) {
+                    $rowNumber = $sheetRowNumber;
+                    $this->syncRepository->updateRowNumber($syncId, $rowNumber);
+                }
 
                 if ($rowNumber >= 2) {
                     $this->googleSheetsService->writeRow($credentialPath, $rowNumber, $payload);
@@ -77,6 +93,8 @@ class ProductSheetExportService
                     $newRowNumber = $this->googleSheetsService->appendRow($credentialPath, $payload);
                     if ($newRowNumber > 0) {
                         $this->syncRepository->updateRowNumber($syncId, $newRowNumber);
+                        $payload['row_number'] = $newRowNumber;
+                        $sheetRowsByReference[$this->getReferenceKey($reference)] = $payload;
                     }
                     ++$appended;
                 }
@@ -106,13 +124,26 @@ class ProductSheetExportService
         $indexed = [];
 
         foreach ($rows as $row) {
-            $reference = trim((string) ($row['reference'] ?? ''));
+            $reference = $this->normalizeReference((string) ($row['reference'] ?? ''));
             if ($reference !== '') {
-                $indexed[$reference] = $row;
+                $key = $this->getReferenceKey($reference);
+                if (!isset($indexed[$key])) {
+                    $indexed[$key] = $row;
+                }
             }
         }
 
         return $indexed;
+    }
+
+    private function normalizeReference(string $reference): string
+    {
+        return trim($reference);
+    }
+
+    private function getReferenceKey(string $reference): string
+    {
+        return Tools::strtolower($this->normalizeReference($reference));
     }
 
     private function payloadMatchesSheetRow(array $payload, ?array $sheetRow): bool
@@ -167,11 +198,11 @@ class ProductSheetExportService
         $sql = 'SELECT p.`id_product`
             FROM `' . _DB_PREFIX_ . 'product` p
             LEFT JOIN `' . _DB_PREFIX_ . 'gsheets_sync` gs ON (
-                gs.`reference` = p.`reference`
+                LOWER(TRIM(gs.`reference`)) = LOWER(TRIM(p.`reference`))
                 AND gs.`sync_direction` = "' . pSQL(SyncRepository::DIRECTION_PRESTASHOP_TO_SHEETS) . '"
             )
             WHERE p.`reference` IS NOT NULL
-              AND p.`reference` != ""
+              AND TRIM(p.`reference`) != ""
               AND (
                 gs.`id_gsheets_sync` IS NULL
                 OR gs.`needs_update` = 1

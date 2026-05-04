@@ -55,7 +55,12 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
       json = JSON.parse(raw);
     } catch (error) {
-      throw new Error('Invalid server response (expected JSON).');
+      const preview = raw.replace(/\s+/g, ' ').trim().slice(0, 180);
+      throw new Error(
+        'Invalid server response (expected JSON). HTTP ' +
+        response.status +
+        (preview ? ': ' + preview : '.')
+      );
     }
 
     if (!response.ok || !json.success) {

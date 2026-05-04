@@ -74,6 +74,7 @@ class GsheetsImport extends Module
     {
         $this->createProductSyncTable();
         $this->migrateLegacyConfig();
+        $this->installAdminTab();
         $this->ensureCronToken();
 
         $output = '';
@@ -345,32 +346,69 @@ class GsheetsImport extends Module
 
     protected function installAdminTab(): bool
     {
-        $tabId = (int) Tab::getIdFromClassName('AdminGsheetsImportAjax');
-        if ($tabId > 0) {
+        $legacyTabId = (int) Tab::getIdFromClassName('AdminGsheetsImportAjax');
+        if ($legacyTabId > 0) {
+            $legacyTab = new Tab($legacyTabId);
+            $legacyTab->class_name = 'AdminGsheetsImport';
+            $legacyTab->module = $this->name;
+            $legacyTab->active = 1;
+            foreach (Language::getLanguages(false) as $lang) {
+                $legacyTab->name[(int) $lang['id_lang']] = 'Google Sheets Import';
+            }
+
+            if (!$legacyTab->update()) {
+                return false;
+            }
+        }
+
+        $tabId = (int) Tab::getIdFromClassName('AdminGsheetsImport');
+        if ($tabId <= 0) {
+            $tab = new Tab();
+            $tab->active = 1;
+            $tab->class_name = 'AdminGsheetsImport';
+            $tab->module = $this->name;
+            $tab->id_parent = (int) Tab::getIdFromClassName('AdminParentModulesSf');
+
+            foreach (Language::getLanguages(false) as $lang) {
+                $tab->name[(int) $lang['id_lang']] = 'Google Sheets Import';
+            }
+
+            if (!$tab->add()) {
+                return false;
+            }
+        }
+
+        $ajaxTabId = (int) Tab::getIdFromClassName('AdminGsheetsImportAjax');
+        if ($ajaxTabId > 0) {
             return true;
         }
 
-        $tab = new Tab();
-        $tab->active = 1;
-        $tab->class_name = 'AdminGsheetsImportAjax';
-        $tab->module = $this->name;
-        $tab->id_parent = (int) Tab::getIdFromClassName('AdminParentModulesSf');
+        $ajaxTab = new Tab();
+        $ajaxTab->active = 0;
+        $ajaxTab->class_name = 'AdminGsheetsImportAjax';
+        $ajaxTab->module = $this->name;
+        $ajaxTab->id_parent = -1;
 
         foreach (Language::getLanguages(false) as $lang) {
-            $tab->name[(int) $lang['id_lang']] = 'Google Sheets Import';
+            $ajaxTab->name[(int) $lang['id_lang']] = 'Google Sheets Import Ajax';
         }
 
-        return (bool) $tab->add();
+        return (bool) $ajaxTab->add();
     }
 
     protected function uninstallAdminTab(): bool
     {
-        $tabId = (int) Tab::getIdFromClassName('AdminGsheetsImportAjax');
-        if ($tabId <= 0) {
-            return true;
+        $success = true;
+        foreach (['AdminGsheetsImport', 'AdminGsheetsImportAjax'] as $className) {
+            $tabId = (int) Tab::getIdFromClassName($className);
+            if ($tabId <= 0) {
+                continue;
+            }
+
+            $tab = new Tab($tabId);
+            $success = (bool) $tab->delete() && $success;
         }
 
-        $tab = new Tab($tabId);
-        return (bool) $tab->delete();
+        return $success;
     }
 }

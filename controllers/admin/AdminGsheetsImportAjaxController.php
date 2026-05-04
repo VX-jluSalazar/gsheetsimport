@@ -87,6 +87,10 @@ class AdminGsheetsImportAjaxController extends ModuleAdminController
 
     private function jsonResponse(array $payload, int $statusCode = 200): void
     {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
         http_response_code($statusCode);
         header('Content-Type: application/json');
         die(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
