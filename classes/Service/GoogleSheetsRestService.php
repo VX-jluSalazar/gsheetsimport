@@ -67,7 +67,7 @@ class GoogleSheetsRestService
         $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_PRODUCTS_SHEET_NAME);
 
         if ($spreadsheetId === '' || $sheetName === '') {
-            throw new PrestaShopException('Google Sheets configuration is incomplete.');
+            throw new PrestaShopException('La configuración de Google Sheets está incompleta.');
         }
 
         $accessToken = $this->authService->getAccessToken($credentialPath);
@@ -108,14 +108,14 @@ class GoogleSheetsRestService
     public function writeRow(string $credentialPath, int $rowNumber, array $payload): void
     {
         if ($rowNumber < 2) {
-            throw new PrestaShopException('Invalid Google Sheets row number.');
+            throw new PrestaShopException('Número de fila de Google Sheets no válido.');
         }
 
         $spreadsheetId = (string) \Configuration::get(\GsheetsImport::CONFIG_SPREADSHEET_ID);
         $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_PRODUCTS_SHEET_NAME);
 
         if ($spreadsheetId === '' || $sheetName === '') {
-            throw new PrestaShopException('Google Sheets configuration is incomplete.');
+            throw new PrestaShopException('La configuración de Google Sheets está incompleta.');
         }
 
         $accessToken = $this->authService->getAccessToken($credentialPath);
@@ -138,7 +138,7 @@ class GoogleSheetsRestService
         $sheetName = (string) \Configuration::get(\GsheetsImport::CONFIG_PRODUCTS_SHEET_NAME);
 
         if ($spreadsheetId === '' || $sheetName === '') {
-            throw new PrestaShopException('Google Sheets configuration is incomplete.');
+            throw new PrestaShopException('La configuración de Google Sheets está incompleta.');
         }
 
         $accessToken = $this->authService->getAccessToken($credentialPath);
@@ -173,7 +173,7 @@ class GoogleSheetsRestService
     private function requestJson(string $url, string $accessToken, string $method = 'GET', ?array $payload = null): array
     {
         if (!function_exists('curl_init')) {
-            throw new PrestaShopException('cURL extension is required.');
+            throw new PrestaShopException('La extensión cURL es obligatoria.');
         }
 
         $ch = curl_init($url);
@@ -203,18 +203,18 @@ class GoogleSheetsRestService
         curl_close($ch);
 
         if ($rawResponse === false) {
-            throw new PrestaShopException('Google Sheets request failed: ' . $curlError);
+            throw new PrestaShopException('Falló la solicitud a Google Sheets: ' . $curlError);
         }
 
         $decoded = json_decode($rawResponse, true);
 
         if ($httpCode >= 400) {
-            $message = $decoded['error']['message'] ?? ('Google Sheets API returned HTTP ' . $httpCode);
+            $message = $decoded['error']['message'] ?? ('La API de Google Sheets devolvió HTTP ' . $httpCode);
             throw new PrestaShopException((string) $message);
         }
 
         if (!is_array($decoded)) {
-            throw new PrestaShopException('Invalid JSON response from Google Sheets API.');
+            throw new PrestaShopException('Respuesta JSON no válida de la API de Google Sheets.');
         }
 
         return $decoded;

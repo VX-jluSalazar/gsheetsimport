@@ -18,12 +18,12 @@ class GoogleJwtAuthService
     public function getAccessToken(string $credentialPath): string
     {
         if (!is_file($credentialPath)) {
-            throw new PrestaShopException('Google credential file not found.');
+            throw new PrestaShopException('No se encontró el archivo de credenciales de Google.');
         }
 
         $content = file_get_contents($credentialPath);
         if ($content === false) {
-            throw new PrestaShopException('Unable to read Google credential file.');
+            throw new PrestaShopException('No se pudo leer el archivo de credenciales de Google.');
         }
 
         $credentials = json_decode($content, true);
@@ -33,7 +33,7 @@ class GoogleJwtAuthService
             empty($credentials['private_key']) ||
             empty($credentials['token_uri'])
         ) {
-            throw new PrestaShopException('Invalid Google credential file.');
+            throw new PrestaShopException('El archivo de credenciales de Google no es válido.');
         }
 
         $jwt = $this->buildJwt(
@@ -45,7 +45,7 @@ class GoogleJwtAuthService
         $response = $this->postTokenRequest((string) $credentials['token_uri'], $jwt);
 
         if (empty($response['access_token'])) {
-            throw new PrestaShopException('Google token response does not contain an access token.');
+            throw new PrestaShopException('La respuesta del token de Google no contiene access token.');
         }
 
         return (string) $response['access_token'];
@@ -79,7 +79,7 @@ class GoogleJwtAuthService
         $result = openssl_sign($unsignedToken, $signature, $privateKey, OPENSSL_ALGO_SHA256);
 
         if ($result !== true) {
-            throw new PrestaShopException('Unable to sign Google JWT token.');
+            throw new PrestaShopException('No se pudo firmar el token JWT de Google.');
         }
 
         return $unsignedToken . '.' . $this->base64UrlEncode($signature);
@@ -91,7 +91,7 @@ class GoogleJwtAuthService
     private function postTokenRequest(string $tokenUri, string $jwt): array
     {
         if (!function_exists('curl_init')) {
-            throw new PrestaShopException('cURL extension is required.');
+            throw new PrestaShopException('La extensión cURL es obligatoria.');
         }
 
         $ch = curl_init($tokenUri);
@@ -117,17 +117,17 @@ class GoogleJwtAuthService
         curl_close($ch);
 
         if ($rawResponse === false) {
-            throw new PrestaShopException('Google token request failed: ' . $curlError);
+            throw new PrestaShopException('Falló la solicitud de token a Google: ' . $curlError);
         }
 
         $decoded = json_decode($rawResponse, true);
         if ($httpCode >= 400) {
-            $message = isset($decoded['error_description']) ? (string) $decoded['error_description'] : 'Google token endpoint returned HTTP ' . $httpCode;
+            $message = isset($decoded['error_description']) ? (string) $decoded['error_description'] : 'El endpoint de token de Google devolvió HTTP ' . $httpCode;
             throw new PrestaShopException($message);
         }
 
         if (!is_array($decoded)) {
-            throw new PrestaShopException('Invalid JSON response from Google token endpoint.');
+            throw new PrestaShopException('Respuesta JSON no válida del endpoint de token de Google.');
         }
 
         return $decoded;

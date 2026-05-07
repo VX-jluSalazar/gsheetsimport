@@ -10,6 +10,7 @@ class GsheetsImport extends Module
     public const CONFIG_PRODUCTS_SHEET_NAME = 'GSHEETSIMPORT_PRODUCTS_SHEET_NAME';
     public const CONFIG_RANGE = 'GSHEETSIMPORT_RANGE';
     public const CONFIG_CRON_TOKEN = 'GSHEETSIMPORT_CRON_TOKEN';
+    public const CONFIG_OVERWRITE_STORE_IMAGES = 'GSHEETSIMPORT_OVERWRITE_STORE_IMAGES';
 
     public function __construct()
     {
@@ -24,8 +25,8 @@ class GsheetsImport extends Module
 
         parent::__construct();
 
-        $this->displayName = $this->trans('Google Sheets Import', [], 'Modules.Gsheetsimport.Admin');
-        $this->description = $this->trans('Imports products from Google Sheets using a staging table.', [], 'Modules.Gsheetsimport.Admin');
+        $this->displayName = $this->trans('Importación desde Google Sheets', [], 'Modules.Gsheetsimport.Admin');
+        $this->description = $this->trans('Importa productos desde Google Sheets usando una tabla de staging.', [], 'Modules.Gsheetsimport.Admin');
         $this->ps_versions_compliancy = ['min' => '8.2.0', 'max' => _PS_VERSION_];
     }
 
@@ -47,6 +48,7 @@ class GsheetsImport extends Module
             && Configuration::updateValue(self::CONFIG_RANGE, 'A2:P')
             && Configuration::updateValue(self::CONFIG_PRODUCTS_SHEET_NAME, 'Productos')
             && Configuration::updateValue(self::CONFIG_CRON_TOKEN, $this->generateCronToken())
+            && Configuration::updateValue(self::CONFIG_OVERWRITE_STORE_IMAGES, 1)
             && $this->registerHook('displayBackOfficeHeader');
     }
 
@@ -58,6 +60,7 @@ class GsheetsImport extends Module
             && Configuration::deleteByName(self::CONFIG_PRODUCTS_SHEET_NAME)
             && Configuration::deleteByName(self::CONFIG_RANGE)
             && Configuration::deleteByName(self::CONFIG_CRON_TOKEN)
+            && Configuration::deleteByName(self::CONFIG_OVERWRITE_STORE_IMAGES)
             && parent::uninstall();
     }
 
@@ -76,6 +79,7 @@ class GsheetsImport extends Module
         $this->migrateLegacyConfig();
         $this->installAdminTab();
         $this->ensureCronToken();
+        $this->ensureImageOverwriteConfig();
 
         $output = '';
 
@@ -88,9 +92,9 @@ class GsheetsImport extends Module
         $this->context->smarty->assign([
             'form_html' => $this->renderConfigurationForm(),
             'ajax_url' => $this->context->link->getAdminLink('AdminGsheetsImportAjax'),
-            'fetch_label' => $this->trans('Synchronize products from Sheet', [], 'Modules.Gsheetsimport.Admin'),
-            'process_label' => $this->trans('Create/Update products', [], 'Modules.Gsheetsimport.Admin'),
-            'export_label' => $this->trans('Synchronize products to Sheet', [], 'Modules.Gsheetsimport.Admin'),
+            'fetch_label' => $this->trans('Sincronizar productos desde la hoja', [], 'Modules.Gsheetsimport.Admin'),
+            'process_label' => $this->trans('Crear/actualizar productos', [], 'Modules.Gsheetsimport.Admin'),
+            'export_label' => $this->trans('Sincronizar productos hacia la hoja', [], 'Modules.Gsheetsimport.Admin'),
             'product_summary' => $repository->getSummary(\GSheetsImport\Repository\SyncRepository::DIRECTION_SHEETS_TO_PRESTASHOP),
             'product_rows' => $repository->getRowsForList('all', 500, \GSheetsImport\Repository\SyncRepository::DIRECTION_SHEETS_TO_PRESTASHOP),
             'product_errors' => $repository->getErrorRows(50, \GSheetsImport\Repository\SyncRepository::DIRECTION_SHEETS_TO_PRESTASHOP),
@@ -106,25 +110,44 @@ class GsheetsImport extends Module
         $fieldsForm = [
             'form' => [
                 'legend' => [
-                    'title' => $this->trans('Configuration', [], 'Modules.Gsheetsimport.Admin'),
+                    'title' => $this->trans('Configuración', [], 'Modules.Gsheetsimport.Admin'),
                     'icon' => 'icon-cogs',
                 ],
                 'input' => [
                     [
                         'type' => 'text',
-                        'label' => $this->trans('Spreadsheet ID', [], 'Modules.Gsheetsimport.Admin'),
+                        'label' => $this->trans('ID de la hoja de cálculo', [], 'Modules.Gsheetsimport.Admin'),
                         'name' => self::CONFIG_SPREADSHEET_ID,
                         'required' => true,
                     ],
                     [
                         'type' => 'text',
-                        'label' => $this->trans('Products sheet name', [], 'Modules.Gsheetsimport.Admin'),
+                        'label' => $this->trans('Nombre de la hoja de productos', [], 'Modules.Gsheetsimport.Admin'),
                         'name' => self::CONFIG_PRODUCTS_SHEET_NAME,
                         'required' => true,
                     ],
                     [
+                        'type' => 'switch',
+                        'label' => $this->trans('Sobrescribir imágenes de la tienda desde la hoja', [], 'Modules.Gsheetsimport.Admin'),
+                        'name' => self::CONFIG_OVERWRITE_STORE_IMAGES,
+                        'is_bool' => true,
+                        'values' => [
+                            [
+                                'id' => self::CONFIG_OVERWRITE_STORE_IMAGES . '_on',
+                                'value' => 1,
+                                'label' => $this->trans('Sí', [], 'Admin.Global'),
+                            ],
+                            [
+                                'id' => self::CONFIG_OVERWRITE_STORE_IMAGES . '_off',
+                                'value' => 0,
+                                'label' => $this->trans('No', [], 'Admin.Global'),
+                            ],
+                        ],
+                        'desc' => $this->trans('Si está activado, image_urls de la hoja reemplaza las imágenes del producto. Si está desactivado, se conservan las imágenes existentes en la tienda.', [], 'Modules.Gsheetsimport.Admin'),
+                    ],
+                    [
                         'type' => 'file',
-                        'label' => $this->trans('Service Account JSON', [], 'Modules.Gsheetsimport.Admin'),
+                        'label' => $this->trans('JSON de Service Account', [], 'Modules.Gsheetsimport.Admin'),
                         'name' => 'GSHEETSIMPORT_SERVICE_ACCOUNT',
                     ],
                 ],
@@ -143,6 +166,7 @@ class GsheetsImport extends Module
         $helper->fields_value = [
             self::CONFIG_SPREADSHEET_ID => (string) Configuration::get(self::CONFIG_SPREADSHEET_ID),
             self::CONFIG_PRODUCTS_SHEET_NAME => (string) Configuration::get(self::CONFIG_PRODUCTS_SHEET_NAME),
+            self::CONFIG_OVERWRITE_STORE_IMAGES => (int) Configuration::get(self::CONFIG_OVERWRITE_STORE_IMAGES, 1),
         ];
 
         return $helper->generateForm([$fieldsForm]);
@@ -154,14 +178,18 @@ class GsheetsImport extends Module
         $productsSheetName = trim((string) Tools::getValue(self::CONFIG_PRODUCTS_SHEET_NAME));
 
         if ($spreadsheetId === '' || $productsSheetName === '') {
-            return $this->displayError($this->trans('Spreadsheet ID and products sheet name are required.', [], 'Modules.Gsheetsimport.Admin'));
+            return $this->displayError($this->trans('El ID de la hoja de cálculo y el nombre de la hoja de productos son obligatorios.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         Configuration::updateValue(self::CONFIG_SPREADSHEET_ID, pSQL($spreadsheetId));
         Configuration::updateValue(self::CONFIG_PRODUCTS_SHEET_NAME, pSQL($productsSheetName));
         Configuration::updateValue(self::CONFIG_RANGE, 'A2:P');
+        Configuration::updateValue(
+            self::CONFIG_OVERWRITE_STORE_IMAGES,
+            (int) Tools::getValue(self::CONFIG_OVERWRITE_STORE_IMAGES, 1)
+        );
 
-        return $this->displayConfirmation($this->trans('Configuration saved.', [], 'Modules.Gsheetsimport.Admin'))
+        return $this->displayConfirmation($this->trans('Configuración guardada.', [], 'Modules.Gsheetsimport.Admin'))
             . $this->handleCredentialUpload();
     }
 
@@ -174,12 +202,12 @@ class GsheetsImport extends Module
         $file = $_FILES['GSHEETSIMPORT_SERVICE_ACCOUNT'];
 
         if ((int) $file['error'] !== UPLOAD_ERR_OK) {
-            return $this->displayError($this->trans('Credential upload failed.', [], 'Modules.Gsheetsimport.Admin'));
+            return $this->displayError($this->trans('Falló la carga de credenciales.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         $content = file_get_contents($file['tmp_name']);
         if ($content === false) {
-            return $this->displayError($this->trans('Unable to read JSON file.', [], 'Modules.Gsheetsimport.Admin'));
+            return $this->displayError($this->trans('No se pudo leer el archivo JSON.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         $decoded = json_decode($content, true);
@@ -191,13 +219,13 @@ class GsheetsImport extends Module
             empty($decoded['private_key']) ||
             empty($decoded['token_uri'])
         ) {
-            return $this->displayError($this->trans('Invalid Service Account JSON file.', [], 'Modules.Gsheetsimport.Admin'));
+            return $this->displayError($this->trans('El archivo JSON de Service Account no es válido.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         $directory = $this->getCredentialsDirectory();
 
         if (!is_dir($directory) && !mkdir($directory, 0755, true)) {
-            return $this->displayError($this->trans('Unable to create credentials directory.', [], 'Modules.Gsheetsimport.Admin'));
+            return $this->displayError($this->trans('No se pudo crear el directorio de credenciales.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         @file_put_contents($directory . '/index.php', "<?php\nexit;\n");
@@ -209,12 +237,12 @@ class GsheetsImport extends Module
         $target = $directory . '/service-account.json';
 
         if (!move_uploaded_file($file['tmp_name'], $target)) {
-            return $this->displayError($this->trans('Unable to move uploaded credential file.', [], 'Modules.Gsheetsimport.Admin'));
+            return $this->displayError($this->trans('No se pudo mover el archivo de credenciales cargado.', [], 'Modules.Gsheetsimport.Admin'));
         }
 
         @chmod($target, 0640);
 
-        return $this->displayConfirmation($this->trans('Credentials uploaded successfully.', [], 'Modules.Gsheetsimport.Admin'));
+        return $this->displayConfirmation($this->trans('Credenciales cargadas correctamente.', [], 'Modules.Gsheetsimport.Admin'));
     }
 
     public function getCredentialsDirectory(): string
@@ -226,11 +254,11 @@ class GsheetsImport extends Module
     {
         $token = $this->ensureCronToken();
         $actions = [
-            'fetchSheet' => $this->trans('Fetch Sheet to staging', [], 'Modules.Gsheetsimport.Admin'),
-            'processBatch' => $this->trans('Create/Update one PrestaShop batch', [], 'Modules.Gsheetsimport.Admin'),
-            'processAll' => $this->trans('Create/Update PrestaShop products', [], 'Modules.Gsheetsimport.Admin'),
-            'pushSheet' => $this->trans('Push modified PrestaShop products to Sheet', [], 'Modules.Gsheetsimport.Admin'),
-            'runAll' => $this->trans('Run full synchronization', [], 'Modules.Gsheetsimport.Admin'),
+            'fetchSheet' => $this->trans('Cargar hoja a staging', [], 'Modules.Gsheetsimport.Admin'),
+            'processBatch' => $this->trans('Crear/actualizar un lote en PrestaShop', [], 'Modules.Gsheetsimport.Admin'),
+            'processAll' => $this->trans('Crear/actualizar productos en PrestaShop', [], 'Modules.Gsheetsimport.Admin'),
+            'pushSheet' => $this->trans('Enviar productos modificados de PrestaShop a la hoja', [], 'Modules.Gsheetsimport.Admin'),
+            'runAll' => $this->trans('Ejecutar sincronización completa', [], 'Modules.Gsheetsimport.Admin'),
         ];
         $links = [];
 
@@ -256,6 +284,13 @@ class GsheetsImport extends Module
         }
 
         return $token;
+    }
+
+    private function ensureImageOverwriteConfig(): void
+    {
+        if (Configuration::get(self::CONFIG_OVERWRITE_STORE_IMAGES) === false) {
+            Configuration::updateValue(self::CONFIG_OVERWRITE_STORE_IMAGES, 1);
+        }
     }
 
     private function generateCronToken(): string

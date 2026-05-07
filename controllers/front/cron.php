@@ -44,7 +44,7 @@ class GsheetsImportCronModuleFrontController extends ModuleFrontController
         $receivedToken = (string) Tools::getValue('token');
 
         if ($expectedToken === '' || $receivedToken === '' || !hash_equals($expectedToken, $receivedToken)) {
-            throw new PrestaShopException('Invalid cron token.');
+            throw new PrestaShopException('Token de cron no válido.');
         }
     }
 
@@ -71,7 +71,7 @@ class GsheetsImportCronModuleFrontController extends ModuleFrontController
                 ];
         }
 
-        throw new PrestaShopException('Invalid cron action.');
+        throw new PrestaShopException('Acción de cron no válida.');
     }
 
     private function fetchSheet(): array

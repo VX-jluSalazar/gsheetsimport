@@ -50,7 +50,7 @@ class ProductSyncService
             } catch (\Throwable $e) {
                 $this->syncRepository->markError($syncId, $e->getMessage());
                 PrestaShopLogger::addLog(
-                    sprintf('GSheets import error for "%s": %s', (string) $row['reference'], $e->getMessage()),
+                    sprintf('Error de importación de GSheets para "%s": %s', (string) $row['reference'], $e->getMessage()),
                     3
                 );
                 ++$errors;
@@ -68,19 +68,19 @@ class ProductSyncService
     private function validatePayload(array $payload): void
     {
         if (empty($payload['reference'])) {
-            throw new PrestaShopException('Missing product reference.');
+            throw new PrestaShopException('Falta la referencia del producto.');
         }
 
         if (empty($payload['name'])) {
-            throw new PrestaShopException('Missing product name.');
+            throw new PrestaShopException('Falta el nombre del producto.');
         }
 
         if ((float) $payload['price'] < 0) {
-            throw new PrestaShopException('Negative price is not allowed.');
+            throw new PrestaShopException('No se permite un precio negativo.');
         }
 
         if ((int) $payload['quantity'] < 0) {
-            throw new PrestaShopException('Negative stock is not allowed.');
+            throw new PrestaShopException('No se permite un stock negativo.');
         }
     }
 
@@ -103,7 +103,7 @@ class ProductSyncService
         $product = $idProduct > 0 ? new Product($idProduct) : new Product();
 
         if ($idProduct > 0 && !Validate::isLoadedObject($product)) {
-            throw new PrestaShopException('Unable to load existing product.');
+            throw new PrestaShopException('No se pudo cargar el producto existente.');
         }
 
         $resolvedCategories = $this->resolveCategoryIds($category);
@@ -142,7 +142,7 @@ class ProductSyncService
         }
 
         if (!$product->save()) {
-            throw new PrestaShopException('Product save failed.');
+            throw new PrestaShopException('Falló el guardado del producto.');
         }
 
         $product->updateCategories($categoryIds);
@@ -223,7 +223,7 @@ class ProductSyncService
                 if ($categoryId <= 0) {
                     $categoryId = $this->createCategory($segmentName, $parentId);
                     if ($categoryId <= 0) {
-                        throw new PrestaShopException(sprintf('Unable to create category "%s".', $segmentName));
+                        throw new PrestaShopException(sprintf('No se pudo crear la categoría "%s".', $segmentName));
                     }
                 }
 
@@ -306,7 +306,7 @@ class ProductSyncService
         $manufacturer->name = $brand;
         $manufacturer->active = 1;
         if (!$manufacturer->add()) {
-            throw new PrestaShopException(sprintf('Unable to create manufacturer "%s".', $brand));
+            throw new PrestaShopException(sprintf('No se pudo crear el fabricante "%s".', $brand));
         }
 
         return (int) $manufacturer->id;
@@ -374,6 +374,14 @@ class ProductSyncService
             return;
         }
 
+        $overwriteImages = (bool) Configuration::get(\GsheetsImport::CONFIG_OVERWRITE_STORE_IMAGES, 1);
+        if (!$overwriteImages) {
+            $existingImages = Image::getImages((int) Configuration::get('PS_LANG_DEFAULT'), (int) $product->id) ?: [];
+            if (!empty($existingImages)) {
+                return;
+            }
+        }
+
         $product->deleteImages();
 
         foreach ($urls as $index => $url) {
@@ -383,12 +391,12 @@ class ProductSyncService
             $image->cover = $index === 0 ? 1 : 0;
 
             if (!$image->add()) {
-                throw new PrestaShopException('Unable to create product image.');
+                throw new PrestaShopException('No se pudo crear la imagen del producto.');
             }
 
             if (!ImageManager::copyImg((int) $product->id, (int) $image->id, $url, 'products', true)) {
                 $image->delete();
-                throw new PrestaShopException(sprintf('Unable to import image from URL: %s', $url));
+                throw new PrestaShopException(sprintf('No se pudo importar la imagen desde la URL: %s', $url));
             }
         }
     }

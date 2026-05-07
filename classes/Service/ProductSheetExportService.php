@@ -103,7 +103,7 @@ class ProductSheetExportService
             } catch (\Throwable $e) {
                 $this->syncRepository->markError($syncId, $e->getMessage());
                 PrestaShopLogger::addLog(
-                    sprintf('GSheets export error for "%s": %s', (string) $row['reference'], $e->getMessage()),
+                    sprintf('Error de exportación de GSheets para "%s": %s', (string) $row['reference'], $e->getMessage()),
                     3
                 );
                 ++$errors;
